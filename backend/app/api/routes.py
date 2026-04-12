@@ -1,23 +1,38 @@
 from fastapi import APIRouter
 from app.core.firewall_engine import smart_firewall
 from app.db.crud import get_alerts
+from app.schemas.request import TrafficRequest
 
 router = APIRouter()
 
 @router.post("/analyze")
-def analyze():
-    # dummy example 
+def analyze(data: TrafficRequest):
+
+
+    features = [
+        data.duration,
+        data.requests,
+        data.byte_rate,
+        data.requests / (data.duration + 1),
+        data.packet_size,
+        data.packet_size * 0.1,
+        data.avg_packet_interval,
+        data.avg_packet_interval * 0.5,
+        1,
+        0
+    ]
+
     action, risk, reasons, attack_type, device_status, trust_score = smart_firewall(
-        [100, 10, 500, 10, 50, 5, 0.1, 0.05, 1, 0],
-        "test_device"
+        features,
+        data.source
     )
 
     return {
         "action": action,
         "risk": risk,
-        "attack_type": attack_type
+        "attack_type": attack_type,
+        "device_status": device_status
     }
-
 
 @router.get("/alerts")
 def fetch_alerts():
