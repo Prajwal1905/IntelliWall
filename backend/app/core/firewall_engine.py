@@ -1,16 +1,18 @@
-# firewall logic with model + risk + response system
 
 from app.core.model_loader import predict
 from app.core.risk_engine import calculate_risk, decide_action
 from app.core.response_engine import auto_response
 from app.db.crud import save_alert
+from app.core.blocker import block_ip, is_blocked
+
 
 def smart_firewall(features, source="Device_X"):
-    
-   
+    # check if already blocked
+    if is_blocked(source):
+        return "BLOCK", 100, ["Previously blocked"], "Blocked IP", "Blocked", 0
+
     anomaly, score, _ = predict(features)
 
-   
     data = {
         "requests": features[1],
         "byte_rate": features[2]
@@ -21,6 +23,10 @@ def smart_firewall(features, source="Device_X"):
 
     # decide action
     action = decide_action(risk)
+
+    # apply blocking
+    if action == "BLOCK":
+        block_ip(source)
 
     # basic classification
     if action == "BLOCK":
@@ -33,19 +39,20 @@ def smart_firewall(features, source="Device_X"):
         attack_type = "Normal"
         device_status = "Trusted"
 
-    
+    # response system
     isolated, logs = auto_response(action, features, attack_type, source)
+
     trust_score = 100
+
     # save alert to database
     save_alert({
-       "protocol": "SIMULATED",
-       "action": action,
-       "risk": risk,
-       "attack_type": attack_type,
-       "trust_score": trust_score,
-       "features": features,
-       "source": source
+        "protocol": "SIMULATED",
+        "action": action,
+        "risk": risk,
+        "attack_type": attack_type,
+        "trust_score": trust_score,
+        "features": features,
+        "source": source
     })
-    
 
     return action, risk, logs, attack_type, device_status, trust_score
