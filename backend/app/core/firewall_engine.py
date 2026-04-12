@@ -1,15 +1,16 @@
-
+# firewall logic with model + risk + response system
 
 from app.core.model_loader import predict
 from app.core.risk_engine import calculate_risk, decide_action
+from app.core.response_engine import auto_response
 
 
 def smart_firewall(features, source="Device_X"):
     
-    
+   
     anomaly, score, _ = predict(features)
 
-    
+   
     data = {
         "requests": features[1],
         "byte_rate": features[2]
@@ -32,8 +33,9 @@ def smart_firewall(features, source="Device_X"):
         attack_type = "Normal"
         device_status = "Trusted"
 
-    # placeholder values
-    reasons = []
+    
+    isolated, logs = auto_response(action, features, attack_type, source)
+
     trust_score = 100
 
-    return action, risk, reasons, attack_type, device_status, trust_score
+    return action, risk, logs, attack_type, device_status, trust_score
