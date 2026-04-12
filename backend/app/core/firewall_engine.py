@@ -1,21 +1,34 @@
 
+
 from app.core.model_loader import predict
+from app.core.risk_engine import calculate_risk, decide_action
+
 
 def smart_firewall(features, source="Device_X"):
     
-    # use model prediction
+    
     anomaly, score, _ = predict(features)
 
-    # basic risk calculation
-    risk = int(score)
+    
+    data = {
+        "requests": features[1],
+        "byte_rate": features[2]
+    }
 
-    # simple decision logic
-    if anomaly == 1 or risk > 70:
-        action = "BLOCK"
+    # calculate risk
+    risk = calculate_risk(anomaly, score, data)
+
+    # decide action
+    action = decide_action(risk)
+
+    # basic classification
+    if action == "BLOCK":
         attack_type = "Suspicious Traffic"
         device_status = "Suspicious"
+    elif action == "CHALLENGE":
+        attack_type = "Potential Threat"
+        device_status = "Under Observation"
     else:
-        action = "ALLOW"
         attack_type = "Normal"
         device_status = "Trusted"
 
