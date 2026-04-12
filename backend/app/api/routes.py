@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from app.core.firewall_engine import smart_firewall
+from app.db.crud import get_alerts
 
 router = APIRouter()
 
@@ -16,3 +17,21 @@ def analyze():
         "risk": risk,
         "attack_type": attack_type
     }
+
+
+@router.get("/alerts")
+def fetch_alerts():
+    alerts = get_alerts()
+
+    return [
+        {
+            "protocol": a.protocol,
+            "action": a.action,
+            "risk": a.risk,
+            "attack_type": a.attack_type,
+            "trust_score": a.trust_score,
+            "timestamp": a.timestamp,
+            "source": a.source
+        }
+        for a in alerts
+    ]
