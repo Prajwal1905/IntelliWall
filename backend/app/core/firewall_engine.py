@@ -3,7 +3,7 @@
 from app.core.model_loader import predict
 from app.core.risk_engine import calculate_risk, decide_action
 from app.core.response_engine import auto_response
-
+from app.db.crud import save_alert
 
 def smart_firewall(features, source="Device_X"):
     
@@ -35,7 +35,17 @@ def smart_firewall(features, source="Device_X"):
 
     
     isolated, logs = auto_response(action, features, attack_type, source)
-
     trust_score = 100
+    # save alert to database
+    save_alert({
+       "protocol": "SIMULATED",
+       "action": action,
+       "risk": risk,
+       "attack_type": attack_type,
+       "trust_score": trust_score,
+       "features": features,
+       "source": source
+    })
+    
 
     return action, risk, logs, attack_type, device_status, trust_score
