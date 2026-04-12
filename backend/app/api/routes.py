@@ -2,12 +2,12 @@ from fastapi import APIRouter
 from app.core.firewall_engine import smart_firewall
 from app.db.crud import get_alerts
 from app.schemas.request import TrafficRequest
+from app.core.graph_engine import update_graph
 
 router = APIRouter()
 
 @router.post("/analyze")
 def analyze(data: TrafficRequest):
-
 
     features = [
         data.duration,
@@ -27,12 +27,16 @@ def analyze(data: TrafficRequest):
         data.source
     )
 
+    graph = update_graph(data.source, risk)
+
     return {
         "action": action,
         "risk": risk,
         "attack_type": attack_type,
-        "device_status": device_status
+        "device_status": device_status,
+        "graph": graph
     }
+
 
 @router.get("/alerts")
 def fetch_alerts():
