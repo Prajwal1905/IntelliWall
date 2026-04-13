@@ -1,3 +1,5 @@
+
+
 from pydantic import BaseModel
 
 class TrafficRequest(BaseModel):
@@ -7,3 +9,12 @@ class TrafficRequest(BaseModel):
     avg_packet_interval: float
     byte_rate: float
     source: str
+
+
+class TrafficResponse(BaseModel):
+    action: str
+    risk: float
+    anomaly: int
+    reasons: list
+    isolated: bool
+    honeypot: list
