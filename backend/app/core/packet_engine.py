@@ -1,65 +1,73 @@
 
+from scapy.all import sniff
 import time
+from scapy.layers.inet import IP
+from scapy.layers.inet6 import IPv6
 
 last_packet_time = None
 
 
-def extract_features(data):
+def extract_features(packet):
     global last_packet_time
 
-    # simulate packet size
-    packet_size = data.get("size", 500)
+    try:
+        packet_size = len(packet)
 
-    # timing logic
-    current_time = time.time()
-    if last_packet_time is None:
-        interval = 1
-    else:
-        interval = current_time - last_packet_time
-    last_packet_time = current_time
+        # timing
+        current_time = time.time()
+        if last_packet_time is None:
+            interval = 1
+        else:
+            interval = current_time - last_packet_time
+        last_packet_time = current_time
 
-    duration = 100
+        duration = 100
 
-    total_fwd_packets = data.get("requests", 50)
-    flow_bytes_s = packet_size / duration
-    flow_packets_s = total_fwd_packets / duration
+        total_fwd_packets = 50
+        flow_bytes_s = packet_size / duration
+        flow_packets_s = total_fwd_packets / duration
 
-    packet_length_mean = packet_size
-    packet_length_std = packet_size * 0.1
+        packet_length_mean = packet_size
+        packet_length_std = packet_size * 0.1
 
-    flow_iat_mean = interval
-    flow_iat_std = interval * 0.5
+        flow_iat_mean = interval
+        flow_iat_std = interval * 0.5
 
-    protocol = data.get("protocol", "SIMULATED TRAFFIC")
-    source_ip = data.get("source", "test_device")
+        protocol = packet.summary()
+        source_ip = "unknown_device"
 
-    return {
-        "features": [
-            duration,
-            total_fwd_packets,
-            flow_bytes_s,
-            flow_packets_s,
-            packet_length_mean,
-            packet_length_std,
-            flow_iat_mean,
-            flow_iat_std,
-            0,
-            0
-        ],
-        "protocol": protocol,
-        "source": source_ip
-    }
+        if packet.haslayer(IP):
+            source_ip = packet[IP].src
+        elif packet.haslayer(IPv6):
+            source_ip = packet[IPv6].src
+
+        return {
+            "features": [
+                duration,
+                total_fwd_packets,
+                flow_bytes_s,
+                flow_packets_s,
+                packet_length_mean,
+                packet_length_std,
+                flow_iat_mean,
+                flow_iat_std,
+                0,
+                0
+            ],
+            "protocol": protocol,
+            "source": source_ip
+        }
+
+    except:
+        return None
 
 
 def start_sniffing(callback):
-    # simulate multiple packets
 
-    sample_packets = [
-        {"source": "192.168.1.10", "size": 400, "requests": 40},
-        {"source": "192.168.1.20", "size": 800, "requests": 80},
-        {"source": "192.168.1.30", "size": 1200, "requests": 120},
-    ]
+    def process(packet):
+        data = extract_features(packet)
+        if data:
+            callback(data)
 
-    for packet in sample_packets:
-        result = extract_features(packet)
-        callback(result)
+    print("Starting real packet capture...")
+    sniff(prn=process, store=0)
