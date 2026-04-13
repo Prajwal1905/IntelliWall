@@ -7,6 +7,8 @@ from app.core.threat_intel import check_blacklist
 from app.core.tls_engine import analyze_tls
 from app.core.nlp_engine import detect_threat_keywords
 from app.core.federated_engine import federated_anomaly_score
+from app.core.explain import generate_reasons
+
 
 def smart_firewall(features, source="Device_X"):
     # check if already blocked
@@ -18,19 +20,29 @@ def smart_firewall(features, source="Device_X"):
         return "BLOCK", 100, ["Blacklisted IP"], "Known Malicious", "Blocked", 0
 
     anomaly, score, _ = predict(features)
+
+    # federated scoring
     fed_score = federated_anomaly_score(features)
     score = (score + fed_score) / 2
 
     data = {
         "requests": features[1],
-        "byte_rate": features[2]
+        "byte_rate": features[2],
+        "packet_size": features[4]
     }
 
     # calculate risk
     risk = calculate_risk(anomaly, score, data)
+
+    # TLS
     tls_risk, tls_reasons = analyze_tls(features)
     risk += tls_risk
+
+    # NLP
     patterns = detect_threat_keywords(str(data))
+    if patterns:
+        risk += 5
+
     # decide action
     action = decide_action(risk)
 
@@ -38,7 +50,7 @@ def smart_firewall(features, source="Device_X"):
     if action == "BLOCK":
         block_ip(source)
 
-    # basic classification
+    # classification
     if action == "BLOCK":
         attack_type = "Suspicious Traffic"
         device_status = "Suspicious"
@@ -49,12 +61,12 @@ def smart_firewall(features, source="Device_X"):
         attack_type = "Normal"
         device_status = "Trusted"
 
-  
+    # response
     isolated, logs = auto_response(action, features, attack_type, source)
 
     trust_score = 100
 
-    
+    # save alert
     save_alert({
         "protocol": "SIMULATED",
         "action": action,
@@ -65,4 +77,8 @@ def smart_firewall(features, source="Device_X"):
         "source": source
     })
 
-    return action, risk, logs, attack_type, device_status, trust_score
+    # explain
+    reasons = generate_reasons(data, anomaly, score)
+    reasons.extend(tls_reasons)
+
+    return action, risk, reasons, attack_type, device_status, trust_score
