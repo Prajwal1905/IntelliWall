@@ -1,15 +1,19 @@
-
 from app.core.model_loader import predict
 from app.core.risk_engine import calculate_risk, decide_action
 from app.core.response_engine import auto_response
 from app.db.crud import save_alert
 from app.core.blocker import block_ip, is_blocked
+from app.core.threat_intel import check_blacklist
 
 
 def smart_firewall(features, source="Device_X"):
     # check if already blocked
     if is_blocked(source):
         return "BLOCK", 100, ["Previously blocked"], "Blocked IP", "Blocked", 0
+
+    # check blacklist
+    if check_blacklist(source):
+        return "BLOCK", 100, ["Blacklisted IP"], "Known Malicious", "Blocked", 0
 
     anomaly, score, _ = predict(features)
 
@@ -39,12 +43,12 @@ def smart_firewall(features, source="Device_X"):
         attack_type = "Normal"
         device_status = "Trusted"
 
-    # response system
+  
     isolated, logs = auto_response(action, features, attack_type, source)
 
     trust_score = 100
 
-    # save alert to database
+    
     save_alert({
         "protocol": "SIMULATED",
         "action": action,
