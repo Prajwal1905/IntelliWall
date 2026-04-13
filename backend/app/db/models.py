@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON
 from datetime import datetime
 from app.db.database import Base
+
 
 class Alert(Base):
     __tablename__ = "alerts"
@@ -12,5 +13,13 @@ class Alert(Base):
     attack_type = Column(String)
     trust_score = Column(Float)
     features = Column(JSON)
-    source =Column(String)
+    source = Column(String)
+
+    lat = Column(Float)
+    lon = Column(Float)
+    country = Column(String)
+    isp = Column(String)
+    proxy = Column(Boolean)
+    hosting = Column(Boolean)
+
     timestamp = Column(DateTime, default=datetime.utcnow)
