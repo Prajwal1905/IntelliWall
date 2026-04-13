@@ -19,13 +19,24 @@ app.include_router(honeypot_router)
 def root():
     return {"message": "IntelliWall API running"}
 
-
 def handle_packet(data):
     features = data["features"]
+    protocol = data.get("protocol", "unknown")
     source = data.get("source", "unknown_device")
 
-    smart_firewall(features, source)
+    print("\n📡 Incoming Packet")
+    print("Source:", source)
+    print("Protocol:", protocol)
+    print("Features:", features)
 
+    action, risk, reasons, attack_type, device_status, trust_score = smart_firewall(
+        features, source
+    )
+
+    print(" Decision:", action)
+    print(" Risk:", risk)
+    print(" Attack Type:", attack_type)
+    print("-" * 40)
 
 def start_packet_monitoring():
     start_sniffing(handle_packet)
