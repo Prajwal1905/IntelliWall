@@ -5,6 +5,7 @@ from app.db.crud import save_alert
 from app.core.blocker import block_ip, is_blocked
 from app.core.threat_intel import check_blacklist
 from app.core.tls_engine import analyze_tls
+from app.core.nlp_engine import detect_threat_keywords
 
 def smart_firewall(features, source="Device_X"):
     # check if already blocked
@@ -26,6 +27,7 @@ def smart_firewall(features, source="Device_X"):
     risk = calculate_risk(anomaly, score, data)
     tls_risk, tls_reasons = analyze_tls(features)
     risk += tls_risk
+    patterns = detect_threat_keywords(str(data))
     # decide action
     action = decide_action(risk)
 
