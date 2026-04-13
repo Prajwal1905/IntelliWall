@@ -6,6 +6,7 @@ from app.core.blocker import block_ip, is_blocked
 from app.core.threat_intel import check_blacklist
 from app.core.tls_engine import analyze_tls
 from app.core.nlp_engine import detect_threat_keywords
+from app.core.federated_engine import federated_anomaly_score
 
 def smart_firewall(features, source="Device_X"):
     # check if already blocked
@@ -17,6 +18,8 @@ def smart_firewall(features, source="Device_X"):
         return "BLOCK", 100, ["Blacklisted IP"], "Known Malicious", "Blocked", 0
 
     anomaly, score, _ = predict(features)
+    fed_score = federated_anomaly_score(features)
+    score = (score + fed_score) / 2
 
     data = {
         "requests": features[1],
