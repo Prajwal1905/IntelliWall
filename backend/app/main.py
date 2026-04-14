@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.api.routes import router
-from app.api.honeypot import router as honeypot_router
+from app.api.honeypot import router as honeypot_router, blocked_ips
 from app.core.model_loader import load_model
 from app.core.firewall_engine import smart_firewall
 from fastapi.middleware.cors import CORSMiddleware
@@ -68,21 +68,28 @@ def handle_packet(data):
         features, source
     )
 
-    # geo-based adjustments
+    # auto block high risk
+    if risk >= 70 or action == "BLOCK":
+        blocked_ips.add(source)
+
+    # geo adjustments
     if geo["proxy"]:
         risk += 2
-        reasons.append("Proxy detected")
-
     if geo["hosting"]:
         risk += 2
-        reasons.append("Hosting network")
+
+    # trust-based reduction
+    if trust_score > 80:
+        risk -= 3
 
     risk = max(0, min(risk, 100))
 
-    # track attacker behavior
     update_attacker_profile(source, risk)
 
-    isolated, logs = auto_response(action, features, attack_type, source)
+    isolated, logs = auto_response(action, features, attack_type, source, risk)
+
+    if source in blocked_ips:
+        return
 
     save_alert({
         "protocol": protocol,
@@ -100,14 +107,7 @@ def handle_packet(data):
         "hosting": geo["hosting"]
     })
 
-    print("\n FIREWALL RESULT")
-    print("Source:", source)
-    print("Protocol:", protocol)
-    print("Action:", action)
-    print("Risk:", risk)
-    print("Attack Type:", attack_type)
-    print(" Location:", geo["country"])
-    print("-" * 50)
+    print(f" {source} | {action} | Risk:{risk} | {attack_type}")
 
 
 def start_packet_monitoring():
