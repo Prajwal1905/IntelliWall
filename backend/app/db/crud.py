@@ -1,5 +1,7 @@
 from app.db.database import SessionLocal
 from app.db.models import Alert
+from datetime import datetime, timedelta
+
 
 
 def save_alert(data):
@@ -12,9 +14,21 @@ def save_alert(data):
         db.close()
 
 
-def get_alerts(limit=50):
+def get_alerts(limit=100):
     db = SessionLocal()
     try:
-        return db.query(Alert).order_by(Alert.id.desc()).limit(limit).all()
+        
+        time_threshold = datetime.utcnow() - timedelta(seconds=60)
+
+        alerts = (
+            db.query(Alert)
+            .filter(Alert.timestamp >= time_threshold)   
+            .order_by(Alert.id.desc())
+            .limit(limit)                                
+            .all()
+        )
+
+        return alerts
+
     finally:
         db.close()
