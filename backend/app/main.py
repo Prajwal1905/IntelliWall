@@ -28,6 +28,8 @@ app.add_middleware(
 )
 
 last_event_time = {}
+attacker_profile = {}
+
 
 def is_duplicate(source):
     now = time.time()
@@ -35,6 +37,21 @@ def is_duplicate(source):
         return True
     last_event_time[source] = now
     return False
+
+
+def update_attacker_profile(source, risk):
+    if source not in attacker_profile:
+        attacker_profile[source] = {
+            "count": 0,
+            "max_risk": 0,
+            "last_seen": time.time()
+        }
+
+    attacker_profile[source]["count"] += 1
+    attacker_profile[source]["max_risk"] = max(
+        attacker_profile[source]["max_risk"], risk
+    )
+    attacker_profile[source]["last_seen"] = time.time()
 
 
 def handle_packet(data):
@@ -45,15 +62,13 @@ def handle_packet(data):
     if is_duplicate(source):
         return
 
-    
+    geo = get_geo_from_ip(source)
+
     action, risk, reasons, attack_type, device_status, trust_score = smart_firewall(
         features, source
     )
 
-   
-    geo = get_geo_from_ip(source)
-
-    
+    # geo-based adjustments
     if geo["proxy"]:
         risk += 2
         reasons.append("Proxy detected")
@@ -64,9 +79,11 @@ def handle_packet(data):
 
     risk = max(0, min(risk, 100))
 
+    # track attacker behavior
+    update_attacker_profile(source, risk)
+
     isolated, logs = auto_response(action, features, attack_type, source)
 
-    
     save_alert({
         "protocol": protocol,
         "action": action,
@@ -83,7 +100,6 @@ def handle_packet(data):
         "hosting": geo["hosting"]
     })
 
-    
     print("\n FIREWALL RESULT")
     print("Source:", source)
     print("Protocol:", protocol)
