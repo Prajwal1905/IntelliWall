@@ -8,6 +8,7 @@ from app.core.packet_engine import start_sniffing
 from app.core.response_engine import auto_response
 from app.db.crud import save_alert
 from app.core.geo import get_geo_from_ip
+from app.core.config import MODE
 
 import threading
 import time
@@ -55,9 +56,19 @@ def update_attacker_profile(source, risk):
 
 
 def handle_packet(data):
-    features = data["features"]
-    protocol = data.get("protocol", "unknown")
-    source = data.get("source", "unknown_device")
+    source = data.get("source", "")
+
+    # skip ipv6 in demo
+    if MODE == "DEMO" and ":" in source:
+        return
+
+    protocol = data.get("protocol", "")
+    features = data["features"].copy()
+
+    # normalize
+    features[0] = min(features[0], 1500)
+    features[2] = min(features[2], 8000)
+    features[6] = max(features[6], 0.05)
 
     if is_duplicate(source):
         return
@@ -65,26 +76,33 @@ def handle_packet(data):
     geo = get_geo_from_ip(source)
 
     action, risk, reasons, attack_type, device_status, trust_score = smart_firewall(
-        features, source
+        features, source, geo
     )
 
-    # auto block high risk
+    # auto block
     if risk >= 70 or action == "BLOCK":
         blocked_ips.add(source)
 
-    # geo adjustments
+    # geo adjust
     if geo["proxy"]:
         risk += 2
     if geo["hosting"]:
         risk += 2
 
-    # trust-based reduction
+    # trust adjust
     if trust_score > 80:
         risk -= 3
 
     risk = max(0, min(risk, 100))
 
     update_attacker_profile(source, risk)
+
+    # behavior override
+    repeat = attacker_profile[source]["count"]
+    if repeat >= 5 and risk >= 50:
+        action = "BLOCK"
+    elif repeat >= 3 and risk >= 40:
+        action = "HONEYPOT"
 
     isolated, logs = auto_response(action, features, attack_type, source, risk)
 
@@ -107,7 +125,7 @@ def handle_packet(data):
         "hosting": geo["hosting"]
     })
 
-    print(f" {source} | {action} | Risk:{risk} | {attack_type}")
+    print(f" {source} | {action} | Risk:{risk}")
 
 
 def start_packet_monitoring():
