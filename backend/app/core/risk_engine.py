@@ -1,28 +1,45 @@
-# basic risk calculation logic
-
 def calculate_risk(anomaly, score, data):
     
-    # simple base risk
-    risk = int(score)
+    risk = 5  
 
-    # increase risk if anomaly detected
+    
+    normalized_score = max(min(score, 1), -1)
+    confidence_risk = int((1 - normalized_score) * 18)
+    risk += confidence_risk
+
+    # anomaly boost
     if anomaly == 1:
-        risk += 20
+        risk += 15
 
-    # basic traffic checks
-    if data["requests"] > 100:
-        risk += 10
+    
+    if data["packet_size"] > 1800:
+        risk += 4
 
-    if data["byte_rate"] > 5000:
-        risk += 10
+    
+    if data["requests"] > 120:
+        risk += 15
 
-    return min(risk, 100)
+    
+    if data["byte_rate"] > 6000:
+        risk += 5
+
+    
+    if data["requests"] > 100 and data["byte_rate"] > 7000:
+        risk += 12
+
+    
+    if data["avg_packet_interval"] < 0.02:
+        risk += 4
+
+    return min(max(risk, 0), 100)
 
 
 def decide_action(risk):
-    if risk > 70:
+    if risk >= 85:
         return "BLOCK"
-    elif risk > 40:
+    elif risk >= 45:
+        return "HONEYPOT"
+    elif risk >= 30:
         return "CHALLENGE"
     else:
         return "ALLOW"
