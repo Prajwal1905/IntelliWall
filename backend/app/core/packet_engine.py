@@ -1,73 +1,41 @@
 
-from scapy.all import sniff
 import time
-from scapy.layers.inet import IP
-from scapy.layers.inet6 import IPv6
 
-last_packet_time = None
+last_packet_time = {}
 
 
-def extract_features(packet):
-    global last_packet_time
+def process_packet(features, source="Device_X"):
+    
 
-    try:
-        packet_size = len(packet)
+    current_time = time.time()
 
-        # timing
-        current_time = time.time()
-        if last_packet_time is None:
-            interval = 1
-        else:
-            interval = current_time - last_packet_time
-        last_packet_time = current_time
+    if len(features) < 5:
+        features = list(features) + [0] * (5 - len(features))
 
-        duration = 100
+    duration = features[0]
+    requests = features[1]
+    byte_rate = features[2]
+    packet_size = features[3]
 
-        total_fwd_packets = 50
-        flow_bytes_s = packet_size / duration
-        flow_packets_s = total_fwd_packets / duration
+    if source in last_packet_time:
+        interval = current_time - last_packet_time[source]
+    else:
+        interval = 1.0
 
-        packet_length_mean = packet_size
-        packet_length_std = packet_size * 0.1
+    last_packet_time[source] = current_time
 
-        flow_iat_mean = interval
-        flow_iat_std = interval * 0.5
+    flags = {
+        "high_requests": requests > 100,
+        "high_byte_rate": byte_rate > 5000,
+        "large_packet": packet_size > 1500,
+        "fast_interval": interval < 0.05
+    }
 
-        protocol = packet.summary()
-        source_ip = "unknown_device"
-
-        if packet.haslayer(IP):
-            source_ip = packet[IP].src
-        elif packet.haslayer(IPv6):
-            source_ip = packet[IPv6].src
-
-        return {
-            "features": [
-                duration,
-                total_fwd_packets,
-                flow_bytes_s,
-                flow_packets_s,
-                packet_length_mean,
-                packet_length_std,
-                flow_iat_mean,
-                flow_iat_std,
-                0,
-                0
-            ],
-            "protocol": protocol,
-            "source": source_ip
-        }
-
-    except:
-        return None
-
-
-def start_sniffing(callback):
-
-    def process(packet):
-        data = extract_features(packet)
-        if data:
-            callback(data)
-
-    print("Starting real packet capture...")
-    sniff(prn=process, store=0)
+    return {
+        "duration": duration,
+        "requests": requests,
+        "byte_rate": byte_rate,
+        "packet_size": packet_size,
+        "avg_packet_interval": interval,
+        "flags": flags
+    }
