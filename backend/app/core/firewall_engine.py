@@ -1,7 +1,8 @@
+
+
 from app.core.model_loader import predict
 from app.core.risk_engine import calculate_risk, decide_action
 from app.core.response_engine import auto_response
-from app.db.crud import save_alert
 from app.core.blocker import block_ip, is_blocked
 from app.core.threat_intel import check_blacklist
 from app.core.tls_engine import analyze_tls
@@ -9,13 +10,15 @@ from app.core.nlp_engine import detect_threat_keywords
 from app.core.federated_engine import federated_anomaly_score
 from app.core.explain import generate_reasons
 
+device_risk_memory = {}
+
 
 def smart_firewall(features, source="Device_X"):
-    # check if already blocked
+   
     if is_blocked(source):
         return "BLOCK", 100, ["Previously blocked"], "Blocked IP", "Blocked", 0
 
-    # check blacklist
+    # blacklist
     if check_blacklist(source):
         return "BLOCK", 100, ["Blacklisted IP"], "Known Malicious", "Blocked", 0
 
@@ -28,10 +31,11 @@ def smart_firewall(features, source="Device_X"):
     data = {
         "requests": features[1],
         "byte_rate": features[2],
-        "packet_size": features[4]
+        "packet_size": features[4],
+        "avg_packet_interval": features[6] if len(features) > 6 else 1
     }
 
-    # calculate risk
+    # risk
     risk = calculate_risk(anomaly, score, data)
 
     # TLS
@@ -43,10 +47,24 @@ def smart_firewall(features, source="Device_X"):
     if patterns:
         risk += 5
 
-    # decide action
+    # memory
+    if source not in device_risk_memory:
+        device_risk_memory[source] = 0
+
+    if risk > 50:
+        device_risk_memory[source] += risk
+    else:
+        device_risk_memory[source] = max(0, device_risk_memory[source] - 10)
+
+    if device_risk_memory[source] > 120:
+        risk += 10
+
+    risk = max(0, min(risk, 100))
+
+    # decision
     action = decide_action(risk)
 
-    # apply blocking
+    # block
     if action == "BLOCK":
         block_ip(source)
 
@@ -62,20 +80,9 @@ def smart_firewall(features, source="Device_X"):
         device_status = "Trusted"
 
     # response
-    isolated, logs = auto_response(action, features, attack_type, source)
+    isolated, logs = auto_response(action, features, attack_type, source, risk)
 
     trust_score = 100
-
-    # save alert
-    save_alert({
-        "protocol": "SIMULATED",
-        "action": action,
-        "risk": risk,
-        "attack_type": attack_type,
-        "trust_score": trust_score,
-        "features": features,
-        "source": source
-    })
 
     # explain
     reasons = generate_reasons(data, anomaly, score)
