@@ -11,7 +11,7 @@ honeypot_logs = []
 def capture_attack(data: dict):
     log = {
         "timestamp": str(datetime.now()),
-        "source": data.get("source", "unknown"),
+        "source": data.get("source"),
         "attack_type": data.get("attack_type"),
         "risk": data.get("risk", 0),
         "features": data.get("features"),
@@ -20,9 +20,7 @@ def capture_attack(data: dict):
     honeypot_logs.append(log)
 
     print("\n HONEYPOT CAPTURED ATTACK")
-    print("Source:", log["source"])
-    print("Type:", log["attack_type"])
-    print("-" * 40)
+    print(log)
 
     return {"status": "captured"}
 
@@ -39,6 +37,7 @@ def get_logs():
                 "source": ip,
                 "count": 0,
                 "max_risk": 0,
+                "total_risk": 0,
                 "attack_types": set()
             }
 
@@ -46,14 +45,29 @@ def get_logs():
         profiles[ip]["max_risk"] = max(
             profiles[ip]["max_risk"], log.get("risk", 0)
         )
+        profiles[ip]["total_risk"] += log.get("risk", 0)
 
         if log.get("attack_type"):
             profiles[ip]["attack_types"].add(log["attack_type"])
 
+    # enhance
     for p in profiles.values():
+        avg_risk = p["total_risk"] / p["count"]
+        threat_score = (p["count"] * 5) + avg_risk
+
+        if threat_score >= 80:
+            level = "HIGH"
+        elif threat_score >= 40:
+            level = "MEDIUM"
+        else:
+            level = "LOW"
+
+        p["avg_risk"] = round(avg_risk, 2)
+        p["threat_score"] = round(threat_score, 2)
+        p["level"] = level
         p["attack_types"] = list(p["attack_types"])
 
-    # remove blocked IPs
+    # remove blocked
     profiles = {
         ip: p for ip, p in profiles.items()
         if ip not in blocked_ips
@@ -71,6 +85,5 @@ def block_ip(data: dict):
 
     if ip:
         blocked_ips.add(ip)
-        print(f"BLOCKED IP: {ip}")
 
     return {"status": "blocked"}
