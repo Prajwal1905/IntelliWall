@@ -1,41 +1,88 @@
-
+from scapy.all import sniff
 import time
+from scapy.layers.inet import IP
+from scapy.layers.inet6 import IPv6
 
-last_packet_time = {}
+last_packet_time = None
 
 
-def process_packet(features, source="Device_X"):
-    
+def extract_features(packet):
+    global last_packet_time
 
-    current_time = time.time()
+    try:
+        packet_size = len(packet)
 
-    if len(features) < 5:
-        features = list(features) + [0] * (5 - len(features))
+        # timing
+        current_time = time.time()
+        if last_packet_time is None:
+            interval = 1
+        else:
+            interval = current_time - last_packet_time
+        last_packet_time = current_time
 
-    duration = features[0]
-    requests = features[1]
-    byte_rate = features[2]
-    packet_size = features[3]
+        duration = 100
 
-    if source in last_packet_time:
-        interval = current_time - last_packet_time[source]
-    else:
-        interval = 1.0
+        # simulate realistic metrics
+        total_fwd_packets = 60 if "TCP" in packet.summary() else 10
+        flow_bytes_s = packet_size / duration
+        flow_packets_s = total_fwd_packets / duration
 
-    last_packet_time[source] = current_time
+        packet_length_mean = packet_size
+        packet_length_std = packet_size * 0.1
 
-    flags = {
-        "high_requests": requests > 100,
-        "high_byte_rate": byte_rate > 5000,
-        "large_packet": packet_size > 1500,
-        "fast_interval": interval < 0.05
-    }
+        flow_iat_mean = interval
+        flow_iat_std = interval * 0.5
 
-    return {
-        "duration": duration,
-        "requests": requests,
-        "byte_rate": byte_rate,
-        "packet_size": packet_size,
-        "avg_packet_interval": interval,
-        "flags": flags
-    }
+        protocol = packet.summary()
+        source_ip = "unknown_device"
+
+        if packet.haslayer(IP):
+            source_ip = packet[IP].src
+        elif packet.haslayer(IPv6):
+            source_ip = packet[IPv6].src
+
+#  Encryption detection
+        is_encrypted = 1 if ("TLS" in protocol or "HTTPS" in protocol) else 0
+
+#  Suspicious TLS (large encrypted packets)
+        tls_suspicious = 1 if (is_encrypted and len(packet) > 1200) else 0
+
+#  suspicious domain detection (basic SNI simulation)
+        suspicious_keywords = ["bot", "malware", "attack", "suspicious"]
+
+        domain_flag = 0
+        for word in suspicious_keywords:
+            if word in protocol.lower():
+                domain_flag = 1
+                break
+
+        return {
+            "features": [
+                duration,
+                total_fwd_packets,
+                flow_bytes_s,
+                flow_packets_s,
+                packet_length_mean,
+                packet_length_std,
+                flow_iat_mean,
+                flow_iat_std,
+                is_encrypted,
+                tls_suspicious
+            ],
+            "protocol": protocol,
+            "source": source_ip
+        }
+
+    except:
+        return None
+
+
+def start_sniffing(callback):
+
+    def process(packet):
+        data = extract_features(packet)
+        if data:
+            callback(data)
+
+    print(" Starting packet capture...")
+    sniff(prn=process, store=0)
