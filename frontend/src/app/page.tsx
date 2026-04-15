@@ -71,14 +71,16 @@ const S = {
 };
 
 export default function Home() {
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [systemRisk, setSystemRisk] = useState(5);
-  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [alerts, setAlerts]                 = useState<Alert[]>([]);
+  const [systemRisk, setSystemRisk]         = useState(5);
+  const [checkingAuth, setCheckingAuth]     = useState(true);
+  const [blacklistCount, setBlacklistCount] = useState(0);
+  const [demoRunning, setDemoRunning]       = useState(false);
 
+  // ── AUTH CHECK ──
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) { window.location.href = "/login"; return; }
-
     const checkBackend = async () => {
       try {
         await fetch("http://127.0.0.1:8000/risk");
@@ -91,6 +93,7 @@ export default function Home() {
     checkBackend();
   }, []);
 
+  // ── RISK ──
   useEffect(() => {
     const fetchRisk = async () => {
       try {
@@ -105,6 +108,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
+  // ── ALERTS ──
   useEffect(() => {
     const fetchData = async () => {
       const data = await getAlerts();
@@ -115,33 +119,48 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  const totalAlerts = alerts.length;
-  const blocked = alerts.filter((a) => a.action === "BLOCK").length;
+  // ── BLACKLIST COUNT ──
+  useEffect(() => {
+    const fetchBlacklist = async () => {
+      try {
+        const res  = await fetch("http://127.0.0.1:8000/honeypot/blacklist");
+        const data = await res.json();
+        setBlacklistCount((data.blocked_ips || []).length);
+      } catch (e) {}
+    };
+    fetchBlacklist();
+    const interval = setInterval(fetchBlacklist, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const totalAlerts  = alerts.length;
+  const blocked      = alerts.filter((a) => a.action === "BLOCK").length;
+  const totalBlocked = blocked + blacklistCount;
+
+  const handleDemoAttack = async () => {
+    setDemoRunning(true);
+    await fetch("http://127.0.0.1:8000/demo/attack", { method: "POST" });
+    setTimeout(() => setDemoRunning(false), 16000);
+  };
+
+  const handleReset = async () => {
+    if (confirm("Reset all demo data?")) {
+      await fetch("http://127.0.0.1:8000/demo/reset", { method: "POST" });
+    }
+  };
 
   if (checkingAuth) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#020617",
-          color: "#94a3b8",
-          fontSize: "14px",
-          gap: "10px",
-        }}
-      >
-        <div
-          style={{
-            width: "16px",
-            height: "16px",
-            border: "2px solid #334155",
-            borderTopColor: "#3b82f6",
-            borderRadius: "50%",
-            animation: "spin 0.8s linear infinite",
-          }}
-        />
+      <div style={{
+        minHeight: "100vh", display: "flex", alignItems: "center",
+        justifyContent: "center", background: "#020617",
+        color: "#94a3b8", fontSize: "14px", gap: "10px",
+      }}>
+        <div style={{
+          width: "16px", height: "16px",
+          border: "2px solid #334155", borderTopColor: "#3b82f6",
+          borderRadius: "50%", animation: "spin 0.8s linear infinite",
+        }} />
         Checking authentication...
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
@@ -153,164 +172,124 @@ export default function Home() {
       <div style={S.inner}>
 
         {/* ── TOPBAR ── */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingBottom: "16px",
-            borderBottom: "1px solid #1e293b",
-          }}
-        >
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          paddingBottom: "16px", borderBottom: "1px solid #1e293b",
+        }}>
+
+          {/* Left: Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div
-              style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "50%",
-                background: "#22c55e",
-                boxShadow: "0 0 6px #22c55e",
-              }}
-            />
-            <h1
-              style={{
-                fontSize: "18px",
-                fontWeight: 700,
-                color: "white",
-                margin: 0,
-                letterSpacing: "0.04em",
-              }}
-            >
+            <div style={{
+              width: "8px", height: "8px", borderRadius: "50%",
+              background: "#22c55e", boxShadow: "0 0 6px #22c55e",
+            }} />
+            <h1 style={{ fontSize: "18px", fontWeight: 700, color: "white", margin: 0, letterSpacing: "0.04em" }}>
               IntelliWall
             </h1>
-            <span
-              style={{
-                fontSize: "11px",
-                color: "#475569",
-                background: "#0f172a",
-                border: "1px solid #1e293b",
-                borderRadius: "6px",
-                padding: "2px 8px",
-              }}
-            >
+            <span style={{
+              fontSize: "11px", color: "#475569", background: "#0f172a",
+              border: "1px solid #1e293b", borderRadius: "6px", padding: "2px 8px",
+            }}>
               LIVE
             </span>
           </div>
 
-          <button
-            onClick={() => {
-              localStorage.removeItem("token");
-              window.location.href = "/login";
-            }}
-            style={{
-              padding: "8px 16px",
-              background: "transparent",
-              border: "1px solid #dc2626",
-              color: "#f87171",
-              borderRadius: "8px",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: "pointer",
-              transition: "background 0.2s",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.background = "rgba(220,38,38,0.1)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.background = "transparent")
-            }
-          >
-            Logout
-          </button>
-        </div>
+          {/* Right: Controls */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+
+            <button
+              onClick={handleDemoAttack}
+              disabled={demoRunning}
+              style={{
+                padding: "8px 16px",
+                background: demoRunning ? "rgba(59,130,246,0.1)" : "transparent",
+                border: "1px solid #3b82f6", color: "#60a5fa",
+                borderRadius: "8px", fontSize: "13px", fontWeight: 500,
+                cursor: demoRunning ? "default" : "pointer",
+                transition: "background 0.2s",
+                display: "flex", alignItems: "center", gap: 6,
+              }}
+              onMouseEnter={(e) => { if (!demoRunning) e.currentTarget.style.background = "rgba(59,130,246,0.1)"; }}
+              onMouseLeave={(e) => { if (!demoRunning) e.currentTarget.style.background = demoRunning ? "rgba(59,130,246,0.1)" : "transparent"; }}
+            >
+              {demoRunning && (
+                <span style={{
+                  width: 8, height: 8, borderRadius: "50%", background: "#60a5fa",
+                  display: "inline-block", animation: "spin 0.8s linear infinite",
+                }} />
+              )}
+              {demoRunning ? "Running..." : "Demo Attack"}
+            </button>
+
+            <button
+              onClick={handleReset}
+              style={{
+                padding: "8px 16px", background: "transparent",
+                border: "1px solid #475569", color: "#64748b",
+                borderRadius: "8px", fontSize: "13px", fontWeight: 500,
+                cursor: "pointer", transition: "background 0.2s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(71,85,105,0.1)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              Reset
+            </button>
+
+            <button
+              onClick={() => { localStorage.removeItem("token"); window.location.href = "/login"; }}
+              style={{
+                padding: "8px 16px", background: "transparent",
+                border: "1px solid #dc2626", color: "#f87171",
+                borderRadius: "8px", fontSize: "13px", fontWeight: 500,
+                cursor: "pointer", transition: "background 0.2s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(220,38,38,0.1)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              Logout
+            </button>
+
+          </div>
+        </div>{/* ── END TOPBAR ── */}
 
         {/* ── METRICS BAR ── */}
         <div style={{ ...S.card, padding: "16px 20px" }}>
           <MetricsBar
             alerts={totalAlerts}
-            blocked={blocked}
+            blocked={totalBlocked}
             risk={systemRisk}
             devices={alerts.length}
           />
         </div>
 
         {/* ── ROW 1: Network Graph + Risk + Top Attackers ── */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "3fr 1fr",
-            gap: "20px",
-            height: "420px",
-          }}
-        >
-          {/* Network Graph */}
+        <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: "20px", height: "420px" }}>
+
           <div style={{ ...S.card, display: "flex", flexDirection: "column" }}>
             <div style={S.cardHeader}>
               <p style={S.cardTitle}>Network Graph</p>
-              <div
-                style={{
-                  fontSize: "11px",
-                  color: "#22c55e",
-                  background: "rgba(34,197,94,0.08)",
-                  border: "1px solid rgba(34,197,94,0.2)",
-                  borderRadius: "6px",
-                  padding: "2px 8px",
-                }}
-              >
-                Live
-              </div>
+              <div style={{
+                fontSize: "11px", color: "#22c55e",
+                background: "rgba(34,197,94,0.08)",
+                border: "1px solid rgba(34,197,94,0.2)",
+                borderRadius: "6px", padding: "2px 8px",
+              }}>Live</div>
             </div>
             <div style={{ flex: 1, padding: "8px", overflow: "hidden" }}>
               <NetworkGraph />
             </div>
           </div>
 
-          {/* Right column: Risk + Top Attackers */}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "20px",
-              height: "420px",
-            }}
-          >
-            {/* Risk Meter */}
-            <div
-              style={{
-                ...S.card,
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "16px",
-              }}
-            >
-              <p
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  color: "#64748b",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  margin: "0 0 12px",
-                }}
-              >
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px", height: "420px" }}>
+
+            <div style={{ ...S.card, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px" }}>
+              <p style={{ fontSize: "11px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 12px" }}>
                 Risk Level
               </p>
               <RiskMeter risk={systemRisk} />
             </div>
 
-            {/* Top Attackers */}
-            <div
-              style={{
-                ...S.card,
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-              }}
-            >
+            <div style={{ ...S.card, flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <div style={S.cardHeader}>
                 <p style={S.cardTitle}>Top Attackers</p>
               </div>
@@ -318,26 +297,14 @@ export default function Home() {
                 <TopAttackers alerts={alerts} />
               </div>
             </div>
+
           </div>
         </div>
 
         {/* ── ROW 2: Threat Timeline + Geo Map ── */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "20px",
-            height: "380px",
-          }}
-        >
-          {/* Threat Timeline */}
-          <div
-            style={{
-              ...S.card,
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", height: "380px" }}>
+
+          <div style={{ ...S.card, display: "flex", flexDirection: "column" }}>
             <div style={S.cardHeader}>
               <p style={S.cardTitle}>Threat Timeline</p>
             </div>
@@ -346,14 +313,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Geo Map */}
-          <div
-            style={{
-              ...S.card,
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
+          <div style={{ ...S.card, display: "flex", flexDirection: "column" }}>
             <div style={S.cardHeader}>
               <p style={S.cardTitle}>Attack Origins</p>
             </div>
@@ -361,6 +321,7 @@ export default function Home() {
               <GeoMap alerts={alerts} />
             </div>
           </div>
+
         </div>
 
         {/* ── HONEYPOT INTELLIGENCE ── */}
@@ -377,13 +338,8 @@ export default function Home() {
         <div style={S.card}>
           <div style={S.cardHeader}>
             <p style={S.cardTitle}>Alert Log</p>
-            <span
-              style={{
-                fontSize: "12px",
-                color: "#64748b",
-              }}
-            >
-              {totalAlerts} total · {blocked} blocked
+            <span style={{ fontSize: "12px", color: "#64748b" }}>
+              {totalAlerts} total · {totalBlocked} blocked
             </span>
           </div>
           <div style={S.cardBody}>
