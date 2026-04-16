@@ -8,6 +8,7 @@ import NetworkGraph from "../components/NetworkGraph";
 import ThreatTimeline from "../components/ThreatTimeline";
 import TopAttackers from "../components/TopAttackers";
 import dynamic from "next/dynamic";
+import FederatedPanel from "../components/FederatedPanel";
 
 const GeoMap = dynamic(() => import("../components/GeoMap"), { ssr: false });
 
@@ -76,6 +77,8 @@ export default function Home() {
   const [checkingAuth, setCheckingAuth]     = useState(true);
   const [blacklistCount, setBlacklistCount] = useState(0);
   const [demoRunning, setDemoRunning]       = useState(false);
+  const [notifications, setNotifications]   = useState<any[]>([]);
+  const [campaigns, setCampaigns]           = useState<any[]>([]);
 
   // ── AUTH CHECK ──
   useEffect(() => {
@@ -133,6 +136,52 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
+  // ── WEBSOCKET LIVE THREATS ──
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let reconnectTimer: any  = null;
+
+    const connect = () => {
+      try {
+        ws = new WebSocket("ws://127.0.0.1:8000/ws/threats");
+
+        ws.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === "threat") {
+              const id = Date.now();
+              setNotifications(prev => [{ ...data, id }, ...prev].slice(0, 5));
+              setTimeout(() => {
+                setNotifications(prev => prev.filter(n => n.id !== id));
+              }, 5000);
+            }
+            if (data.type === "campaign") {
+              const id = Date.now();
+              setCampaigns(prev => [{ ...data.campaign, id }, ...prev].slice(0, 3));
+              setTimeout(() => {
+                setCampaigns(prev => prev.filter(c => c.id !== id));
+              }, 15000);
+            }
+          } catch {}
+        };
+
+        ws.onclose = () => {
+          reconnectTimer = setTimeout(connect, 3000);
+        };
+
+        ws.onerror = () => {
+          ws?.close();
+        };
+      } catch {}
+    };
+
+    connect();
+    return () => {
+      ws?.close();
+      clearTimeout(reconnectTimer);
+    };
+  }, []);
+
   const totalAlerts  = alerts.length;
   const blocked      = alerts.filter((a) => a.action === "BLOCK").length;
   const totalBlocked = blocked + blacklistCount;
@@ -148,6 +197,39 @@ export default function Home() {
       await fetch("http://127.0.0.1:8000/demo/reset", { method: "POST" });
     }
   };
+
+  // Add keyframes to document
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes slideIn {
+        from { opacity: 0; transform: translateX(40px); }
+        to   { opacity: 1; transform: translateX(0); }
+      }
+      @keyframes shrink {
+        from { width: 100%; }
+        to   { width: 0%; }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+
+  // ── POLL CAMPAIGNS (fallback if WebSocket fails) ──
+useEffect(() => {
+  const fetchCampaigns = async () => {
+    try {
+      const res  = await fetch("http://127.0.0.1:8000/correlation/campaigns");
+      const data = await res.json();
+      if (data.campaigns?.length > 0) {
+        setCampaigns(data.campaigns.slice(0, 3).map((c: any) => ({ ...c, id: c.id || Date.now() })));
+      }
+    } catch {}
+  };
+  fetchCampaigns();
+  const interval = setInterval(fetchCampaigns, 3000);
+  return () => clearInterval(interval);
+}, []);
 
   if (checkingAuth) {
     return (
@@ -196,7 +278,19 @@ export default function Home() {
 
           {/* Right: Controls */}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-
+            <a href="/report" style={{
+              padding: "8px 16px",
+              background: "transparent",
+              border: "1px solid #475569",
+              color: "#94a3b8",
+              borderRadius: "8px",
+              fontSize: "13px",
+              fontWeight: 500,
+              cursor: "pointer",
+              textDecoration: "none",
+            }}>
+              Report
+            </a>
             <button
               onClick={handleDemoAttack}
               disabled={demoRunning}
@@ -251,6 +345,110 @@ export default function Home() {
 
           </div>
         </div>{/* ── END TOPBAR ── */}
+
+        {/* ── LIVE THREAT NOTIFICATIONS ── */}
+        <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+          {notifications.map((n) => {
+            const isBlock    = n.action === "BLOCK";
+            const isHoneypot = n.action === "HONEYPOT";
+            const color      = isBlock ? "#f87171" : isHoneypot ? "#c084fc" : "#fbbf24";
+            const bg         = isBlock ? "rgba(248,113,113,0.12)" : isHoneypot ? "rgba(192,132,252,0.12)" : "rgba(251,191,36,0.12)";
+            const border     = isBlock ? "rgba(248,113,113,0.35)" : isHoneypot ? "rgba(192,132,252,0.35)" : "rgba(251,191,36,0.35)";
+            const icon = isBlock ? "[BLOCK]" : isHoneypot ? "[TRAP]" : "[WARN]";
+            const label      = isBlock ? "BLOCKED" : isHoneypot ? "HONEYPOT" : "CHALLENGE";
+
+            return (
+              <div key={n.id} style={{
+                background: bg, border: `1px solid ${border}`,
+                borderRadius: 10, padding: "12px 16px",
+                minWidth: 320, maxWidth: 380,
+                backdropFilter: "blur(8px)",
+                boxShadow: `0 4px 20px rgba(0,0,0,0.4), 0 0 20px ${color}20`,
+                animation: "slideIn 0.3s ease-out",
+                pointerEvents: "auto",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color, background: `${color}20`, border: `1px solid ${color}40`, borderRadius: 4, padding: "2px 6px" }}>{icon}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color, letterSpacing: "0.06em" }}>
+                     LIVE THREAT — {label}
+                  </span>
+                  <span style={{ marginLeft: "auto", fontSize: 10, color: "rgba(148,163,184,0.6)" }}>
+                    {new Date(n.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
+                  <span style={{ fontFamily: "ui-monospace,monospace", color: "#e2e8f0", fontWeight: 600 }}>{n.source}</span>
+                  <span style={{ color: "rgba(148,163,184,0.7)" }}>·</span>
+                  <span style={{ color: "rgba(148,163,184,0.8)" }}>{n.country}</span>
+                  <span style={{ color: "rgba(148,163,184,0.7)" }}>·</span>
+                  <span style={{ color, fontWeight: 600 }}>risk {n.risk}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(148,163,184,0.6)", marginTop: 4 }}>{n.attack_type}</div>
+                {/* Progress bar — auto dismiss timer */}
+                <div style={{ marginTop: 8, height: 2, borderRadius: 99, background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", background: color, borderRadius: 99, animation: "shrink 5s linear forwards" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── COORDINATED ATTACK BANNER ── */}
+        {campaigns.map((camp) => (
+          <div key={camp.id} style={{
+            background: "rgba(220,38,38,0.08)",
+            border: "1px solid rgba(220,38,38,0.35)",
+            borderRadius: 12,
+            padding: "14px 20px",
+            animation: "slideIn 0.4s ease-out",
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#f87171", flexShrink: 0, border: "1px solid rgba(248,113,113,0.3)", borderRadius: 6, padding: "4px 8px" }}>ALERT</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#f87171", letterSpacing: "0.06em" }}>
+                  COORDINATED ATTACK DETECTED — {camp.campaign_type}
+                </span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#f87171",
+                  background: "rgba(248,113,113,0.15)", border: "1px solid rgba(248,113,113,0.3)",
+                  borderRadius: 5, padding: "2px 8px" }}>
+                  {camp.threat_level}
+                </span>
+                <span style={{ fontSize: 10, color: "#64748b", marginLeft: "auto" }}>
+                  Confidence: {camp.confidence}%
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                <span style={{ color: "#f87171", fontWeight: 600 }}>{camp.ip_count} IPs</span>
+                {" "}from{" "}
+                <span style={{ color: "#60a5fa", fontWeight: 600 }}>{camp.country}</span>
+                {" "}coordinating within{" "}
+                <span style={{ fontWeight: 600 }}>{camp.window_secs}s</span>
+                {" "}— avg risk{" "}
+                <span style={{ color: "#f87171", fontWeight: 600 }}>{camp.avg_risk}</span>
+                {" "}— likely botnet campaign
+              </div>
+              <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(camp.ips || []).slice(0, 6).map((ip: string) => (
+                  <span key={ip} style={{ fontFamily: "ui-monospace,monospace", fontSize: 10,
+                    color: "#94a3b8", background: "rgba(248,113,113,0.08)",
+                    border: "1px solid rgba(248,113,113,0.2)", borderRadius: 4, padding: "1px 6px" }}>
+                    {ip}
+                  </span>
+                ))}
+                {camp.ip_count > 6 && <span style={{ fontSize: 10, color: "#64748b" }}>+{camp.ip_count - 6} more</span>}
+              </div>
+            </div>
+            <button onClick={() => setCampaigns(prev => prev.filter(c => c.id !== camp.id))}
+              style={{ background: "transparent", border: "none", color: "#475569", fontSize: 18, cursor: "pointer", flexShrink: 0 }}>
+              ✕
+            </button>
+          </div>
+        ))}
+
+        
 
         {/* ── METRICS BAR ── */}
         <div style={{ ...S.card, padding: "16px 20px" }}>
@@ -332,6 +530,9 @@ export default function Home() {
           <div style={S.cardBody}>
             <HoneypotPanel />
           </div>
+        </div>
+        <div style={S.card}>
+          <FederatedPanel />
         </div>
 
         {/* ── ALERTS PANEL ── */}

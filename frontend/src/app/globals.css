@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 🌑 Cyber Background */
+body {
+  background: radial-gradient(circle at top, #0f172a, #020617);
+  color: #e5e7eb;
+  font-family: 'Inter', sans-serif;
+}
+
+/* ✨ Glow utilities */
+.glow-red {
+  box-shadow: 0 0 12px rgba(255, 59, 59, 0.7);
+}
+
+.glow-green {
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.6);
+}
+
+.glow-yellow {
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.7);
+}
+
+/* 🧊 Glass effect */
+.glass {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.1);
+}
