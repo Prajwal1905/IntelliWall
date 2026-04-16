@@ -7,23 +7,98 @@ router = APIRouter()
 honeypot_logs = []
 trap_stats    = {}
 
+# ── DECEPTION ESCALATION ENGINE 
+# Tracks how many times each IP has hit traps
+# Escalates deception before blocking — extracts maximum intel
+ip_hit_counts = {}  # ip → hit count
+
+ESCALATION_STAGES = {
+    1: {
+        "stage":       "INITIAL CONTACT",
+        "action":      "DECEIVE",
+        "description": "First contact — giving fake success to keep attacker engaged",
+        "block":       False,
+    },
+    2: {
+        "stage":       "DEEPENING TRAP",
+        "action":      "ESCALATE",
+        "description": "Second hit — providing deeper fake access to extract more intel",
+        "block":       False,
+    },
+    3: {
+        "stage":       "MAXIMUM DECEPTION",
+        "action":      "EXTRACT",
+        "description": "Third hit — feeding fake database dump for maximum intelligence",
+        "block":       False,
+    },
+    4: {
+        "stage":       "TERMINATION",
+        "action":      "BLOCK",
+        "description": "Full profile captured — terminating connection and blacklisting",
+        "block":       True,
+    },
+}
+
+# Escalating fake responses per stage
+STAGE_RESPONSES = {
+    "Admin Panel Probe": {
+        1: {"status": "ok", "role": "viewer", "session": "active"},
+        2: {"status": "ok", "role": "admin", "session": "active", "users": 142},
+        3: {"status": "ok", "role": "superadmin", "db_access": True, "backup_url": "/backup"},
+        4: None,  # BLOCKED
+    },
+    "Credential Attack": {
+        1: {"token": "eyJhbGci.fake.stage1", "role": "viewer"},
+        2: {"token": "eyJhbGci.fake.stage2", "role": "admin", "2fa": "disabled"},
+        3: {"token": "eyJhbGci.fake.stage3", "role": "superadmin", "users": [{"email": "ceo@company.com"}, {"email": "finance@company.com"}]},
+        4: None,
+    },
+    "Shell Access Attempt": {
+        1: {"output": "Permission denied", "uid": "1000(www-data)"},
+        2: {"output": "root@server:~#", "uid": "0(root)", "cwd": "/var/www"},
+        3: {"output": "root@server:~#", "uid": "0(root)", "files": ["db_backup.sql", "config.env", "private.key"]},
+        4: None,
+    },
+    "Env File Probe": {
+        1: {"DB_HOST": "localhost", "DB_NAME": "app_db"},
+        2: {"DB_HOST": "localhost", "DB_PASS": "fake_pass_123", "REDIS_URL": "redis://localhost"},
+        3: {"DB_HOST": "localhost", "DB_PASS": "fake_pass_123", "API_KEY": "sk-fake-abc123", "JWT_SECRET": "fake_secret", "AWS_KEY": "AKIAFAKE123"},
+        4: None,
+    },
+}
+
+def get_escalation_response(trap_name: str, stage: int) -> dict:
+    
+    responses = STAGE_RESPONSES.get(trap_name, {})
+    if stage in responses and responses[stage] is not None:
+        return responses[stage]
+    # Default escalating responses
+    defaults = {
+        1: {"status": "ok", "message": "Access granted"},
+        2: {"status": "ok", "message": "Full access granted", "data": "loading..."},
+        3: {"status": "ok", "message": "Superadmin access", "dump": "generating..."},
+    }
+    return defaults.get(stage, {"status": "ok"})
+
+
+# ── KNOWN SCANNER SIGNATURES 
 KNOWN_SCANNERS = {
-    "sqlmap":    "SQLMap - SQL Injection Scanner",
-    "nikto":     "Nikto - Web Vulnerability Scanner",
-    "masscan":   "Masscan - Port Scanner",
-    "nmap":      "Nmap - Network Scanner",
-    "zgrab":     "ZGrab - Banner Grabber",
-    "gobuster":  "Gobuster - Directory Brute Forcer",
-    "dirbuster": "DirBuster - Directory Brute Forcer",
-    "hydra":     "Hydra - Credential Brute Forcer",
-    "metasploit":"Metasploit Framework",
-    "curl":      "cURL - Likely Automated",
-    "python":    "Python Script - Likely Automated",
-    "go-http":   "Go HTTP Client - Likely Scanner",
-    "zgrab2":    "ZGrab2 - Banner Grabber",
-    "nuclei":    "Nuclei - Vulnerability Scanner",
-    "wfuzz":     "WFuzz - Web Fuzzer",
-    "burp":      "Burp Suite - Web Proxy",
+    "sqlmap":     "SQLMap - SQL Injection Scanner",
+    "nikto":      "Nikto - Web Vulnerability Scanner",
+    "masscan":    "Masscan - Port Scanner",
+    "nmap":       "Nmap - Network Scanner",
+    "zgrab":      "ZGrab - Banner Grabber",
+    "gobuster":   "Gobuster - Directory Brute Forcer",
+    "dirbuster":  "DirBuster - Directory Brute Forcer",
+    "hydra":      "Hydra - Credential Brute Forcer",
+    "metasploit": "Metasploit Framework",
+    "curl":       "cURL - Likely Automated",
+    "python":     "Python Script - Likely Automated",
+    "go-http":    "Go HTTP Client - Likely Scanner",
+    "zgrab2":     "ZGrab2 - Banner Grabber",
+    "nuclei":     "Nuclei - Vulnerability Scanner",
+    "wfuzz":      "WFuzz - Web Fuzzer",
+    "burp":       "Burp Suite - Web Proxy",
 }
 
 SKIP_HEADERS = {"cookie", "authorization", "x-api-key", "x-token"}
@@ -91,13 +166,21 @@ async def extract_fingerprint(request: Request) -> dict:
 
 
 async def _trigger_honeypot(request: Request, trap_name: str, risk: int = 85):
-    # ← FIX: use X-Forwarded-For if present (simulation sends real IPs here)
     client_ip = request.headers.get("x-forwarded-for") or request.client.host
+
+    
+    ip_hit_counts[client_ip] = ip_hit_counts.get(client_ip, 0) + 1
+    hit_count = ip_hit_counts[client_ip]
+    stage_num = min(hit_count, 4)
+    stage_info = ESCALATION_STAGES[stage_num]
 
     fingerprint = await extract_fingerprint(request)
 
     if fingerprint["scanner"]:
         risk = min(100, risk + 10)
+
+    # Risk escalates with each hit
+    escalated_risk = min(100, risk + (hit_count - 1) * 8)
 
     geo = {"lat": 0, "lon": 0, "country": "Unknown", "isp": "Unknown"}
     try:
@@ -107,37 +190,43 @@ async def _trigger_honeypot(request: Request, trap_name: str, risk: int = 85):
         pass
 
     log = {
-        "timestamp":    str(datetime.now()),
-        "source":       client_ip,
-        "attack_type":  trap_name,
-        "risk":         risk,
-        "lat":          geo["lat"],
-        "lon":          geo["lon"],
-        "country":      geo["country"],
-        "isp":          geo["isp"],
-        "is_deception": True,
-        "fingerprint":  fingerprint,
+        "timestamp":        str(datetime.now()),
+        "source":           client_ip,
+        "attack_type":      trap_name,
+        "risk":             escalated_risk,
+        "lat":              geo["lat"],
+        "lon":              geo["lon"],
+        "country":          geo["country"],
+        "isp":              geo["isp"],
+        "is_deception":     True,
+        "fingerprint":      fingerprint,
+        "escalation_stage": stage_num,
+        "escalation_info":  stage_info,
+        "total_hits":       hit_count,
     }
 
     if trap_name == "Credential Attack":
-        log["risk"] = min(100, risk + 40)
+        log["risk"] = min(100, escalated_risk + 40)
     elif trap_name == "Shell Access Attempt":
-        log["risk"] = min(100, risk + 10)
+        log["risk"] = min(100, escalated_risk + 10)
 
     honeypot_logs.append(log)
-    blocked_ips.add(client_ip)
     trap_stats[trap_name] = trap_stats.get(trap_name, 0) + 1
 
-    print(f"\n TRAP HIT: [{trap_name}] from {client_ip} ({geo['country']})")
+    if stage_info["block"]:
+        blocked_ips.add(client_ip)
+        print(f"\n  [ESCALATION] {client_ip} — Stage 4 TERMINATION — blacklisted after {hit_count} hits")
+    else:
+        print(f"\n  [ESCALATION] {client_ip} — Stage {stage_num}: {stage_info['stage']} — still deceiving ({hit_count} hits)")
+
     print(f"   Scanner : {fingerprint['scanner'] or 'Unknown'}")
     print(f"   UA      : {fingerprint['user_agent'][:80]}")
     if fingerprint["credentials"]:
         print(f"   Creds   : {fingerprint['credentials']}")
 
-    return log
+    return log, stage_num, stage_info
 
 
-# ── MANUAL CAPTURE
 @router.post("/honeypot")
 def capture_attack(data: dict):
     log = {
@@ -153,75 +242,89 @@ def capture_attack(data: dict):
         "is_deception": True,
         "fingerprint":  None,
     }
-
     attack_type = log.get("attack_type", "")
     if attack_type == "Credential Attack":
         log["risk"] += 40
     elif attack_type == "Bot":
         log["risk"] += 30
-
     log["risk"] = min(log["risk"], 100)
     honeypot_logs.append(log)
     return {"status": "captured"}
 
 
-# ── FAKE TRAP ENDPOINTS
 
 @router.get("/admin")
 @router.post("/admin")
 async def fake_admin(request: Request):
-    await _trigger_honeypot(request, "Admin Panel Probe")
-    return {"status": "ok", "message": "Welcome to admin panel"}
+    log, stage, info = await _trigger_honeypot(request, "Admin Panel Probe")
+    return get_escalation_response("Admin Panel Probe", stage) if not info["block"] else {"error": "Not found"}
 
 @router.get("/wp-admin")
 @router.post("/wp-admin")
 async def fake_wp_admin(request: Request):
-    await _trigger_honeypot(request, "WordPress Probe")
-    return {"wp": "login", "version": "6.4.2", "status": "ok"}
+    log, stage, info = await _trigger_honeypot(request, "WordPress Probe")
+    return {"wp": "login", "version": "6.4.2", "access": "granted" if stage > 1 else "pending"} if not info["block"] else {"error": "Not found"}
 
 @router.get("/login")
 @router.post("/login")
 async def fake_login(request: Request):
-    await _trigger_honeypot(request, "Credential Attack")
-    return {"token": "eyJhbGciOiJIUzI1NiJ9.fake.token", "expires_in": 3600}
+    log, stage, info = await _trigger_honeypot(request, "Credential Attack")
+    return get_escalation_response("Credential Attack", stage) if not info["block"] else {"error": "Unauthorized"}
 
 @router.get("/.env")
 async def fake_env(request: Request):
-    await _trigger_honeypot(request, "Env File Probe", risk=90)
-    return {"DB_HOST": "localhost", "DB_PASS": "secret123", "API_KEY": "sk-fake-key-abc123", "JWT_SECRET": "supersecret"}
+    log, stage, info = await _trigger_honeypot(request, "Env File Probe", risk=90)
+    return get_escalation_response("Env File Probe", stage) if not info["block"] else {"error": "Not found"}
 
 @router.get("/config")
 @router.post("/config")
 async def fake_config(request: Request):
-    await _trigger_honeypot(request, "Config Probe", risk=80)
-    return {"debug": True, "db": "mongodb://admin:password@localhost:27017"}
+    log, stage, info = await _trigger_honeypot(request, "Config Probe", risk=80)
+    return {"debug": True, "level": stage, "db": "mongodb://admin:fake@localhost"} if not info["block"] else {"error": "Not found"}
 
 @router.get("/shell")
 @router.post("/shell")
 async def fake_shell(request: Request):
-    await _trigger_honeypot(request, "Shell Access Attempt", risk=95)
-    return {"output": "root@server:~#", "status": "connected", "uid": "0(root)"}
+    log, stage, info = await _trigger_honeypot(request, "Shell Access Attempt", risk=95)
+    return get_escalation_response("Shell Access Attempt", stage) if not info["block"] else {"error": "Connection refused"}
 
 @router.get("/api/v1/users")
 async def fake_users(request: Request):
-    await _trigger_honeypot(request, "Data Exfiltration Probe", risk=88)
-    return {"users": [{"id": 1, "email": "admin@company.com", "role": "superadmin"}, {"id": 2, "email": "devops@company.com", "role": "admin"}]}
+    log, stage, info = await _trigger_honeypot(request, "Data Exfiltration Probe", risk=88)
+    if info["block"]: return {"error": "Unauthorized"}
+    count = [2, 5, 142][min(stage-1, 2)]
+    return {"users": [{"id": i+1, "email": f"user{i+1}@company.com"} for i in range(count)]}
 
 @router.get("/phpmyadmin")
 @router.post("/phpmyadmin")
 async def fake_phpmyadmin(request: Request):
-    await _trigger_honeypot(request, "phpMyAdmin Probe", risk=85)
-    return {"pma_version": "5.2.1", "server": "MySQL 8.0"}
+    log, stage, info = await _trigger_honeypot(request, "phpMyAdmin Probe", risk=85)
+    return {"pma_version": "5.2.1", "tables": stage * 12, "server": "MySQL 8.0"} if not info["block"] else {"error": "Not found"}
 
 @router.get("/backup")
 @router.get("/backup.zip")
 @router.get("/backup.sql")
 async def fake_backup(request: Request):
-    await _trigger_honeypot(request, "Backup File Probe", risk=88)
-    return {"file": "backup_2024.sql", "size": "2.4GB", "status": "ready"}
+    log, stage, info = await _trigger_honeypot(request, "Backup File Probe", risk=88)
+    return {"file": f"backup_stage{stage}.sql", "size": f"{stage * 0.8:.1f}GB", "status": "ready"} if not info["block"] else {"error": "Not found"}
+
+@router.get("/honeypot/escalation")
+def get_escalation_status():
+    """Returns current escalation stage per IP."""
+    return {
+        "escalation": [
+            {
+                "ip":        ip,
+                "hits":      count,
+                "stage":     min(count, 4),
+                "stage_info": ESCALATION_STAGES[min(count, 4)],
+                "blocked":   ip in blocked_ips,
+            }
+            for ip, count in ip_hit_counts.items()
+        ]
+    }
 
 
-# ── LOGS ENDPOINT 
 @router.get("/honeypot/logs")
 def get_logs():
     profiles = {}
@@ -279,8 +382,6 @@ def get_logs():
         "trap_stats": trap_stats,
     }
 
-
-# ── BUILD SESSIONS 
 def build_sessions(logs):
     sessions = {}
     for log in logs:
@@ -301,7 +402,6 @@ def build_sessions(logs):
     return result
 
 
-# ── BLOCK + BLACKLIST
 @router.post("/honeypot/block")
 def block_ip(data: dict):
     ip = data.get("ip")
