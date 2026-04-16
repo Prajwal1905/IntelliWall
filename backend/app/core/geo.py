@@ -1,11 +1,7 @@
-
-
 import requests
-
 
 def get_geo_from_ip(ip):
     try:
-        # local/private IP handling
         if ip.startswith(("192.", "127.", "10.")):
             return {
                 "lat": 20.5937,
@@ -20,7 +16,7 @@ def get_geo_from_ip(ip):
         data = res.json()
 
         if data.get("status") != "success":
-            raise Exception("Geo lookup failed")
+            raise Exception("Geo failed")
 
         return {
             "lat": data.get("lat", 0),
@@ -31,7 +27,7 @@ def get_geo_from_ip(ip):
             "hosting": data.get("hosting", False)
         }
 
-    except Exception:
+    except:
         return {
             "lat": 0,
             "lon": 0,
