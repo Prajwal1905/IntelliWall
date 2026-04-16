@@ -1,15 +1,36 @@
+
+import joblib
+import numpy as np
+from tensorflow.keras.models import load_model as keras_load_model
+
+iso_model = None
+cnn_model = None
+scaler = None
+
 def load_model():
-    print("Model initialized (prototype)")
+    global iso_model, cnn_model, scaler
+
+    iso_model = joblib.load("app/data/iso_model_real.pkl")
+    cnn_model = keras_load_model("app/data/cnn_model.h5")
+    scaler = joblib.load("app/data/scaler.pkl")
 
 
 def predict(features):
-    # simple mock logic
+    global iso_model, cnn_model, scaler
 
-    score = sum(features) % 100
+    # convert to numpy
+    X = np.array([features[:8]])
 
-    if score > 60:
-        anomaly = 1
-    else:
-        anomaly = 0
+    
+    X_scaled = scaler.transform(X)
 
-    return anomaly, score, 0.5
+    
+    iso_pred = iso_model.predict(X_scaled)[0]   # -1 / 1
+    iso_score = iso_model.decision_function(X_scaled)[0]
+
+    anomaly = 1 if iso_pred == -1 else 0
+
+   
+    cnn_score = cnn_model.predict(X_scaled, verbose=0)[0][0]
+
+    return anomaly, iso_score, cnn_score
